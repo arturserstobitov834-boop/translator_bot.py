@@ -1,0 +1,187 @@
+import logging
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from translate import Translator 
+8771224529:AAEv_SU3xqNbGlvH-ykpLOLXKaBU9uhXIT8
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Список поддерживаемых языков (можно расширить)
+# Формат: {название_языка: код_языка}
+# Коды языков можно найти в документации библиотеки translate или погуглить
+SUPPORTED_LANGUAGES = {
+    'Русский': 'ru',
+    'Английский': 'en',
+    'Испанский': 'es',
+    'Французский': 'fr',
+    'Немецкий': 'de',
+    'Китайский': 'zh',
+    'Японский': 'ja',
+}
+# Словарь для хранения языка оригинала и языка перевода для каждого пользователя
+# Ключ - ID пользователя, значение - словарь {'from_lang': '...', 'to_lang': '...'}
+user_languages = {}
+
+def start(update: Update, context: CallbackContext) -> None:
+    """Отправляет приветственное сообщение при команде /start."""
+    user = update.effective_user
+    user_id = user.id
+
+    # Инициализируем настройки языка для нового пользователя
+    user_languages[user_id] = {'from_lang': 'auto', 'to_lang': 'ru'} # По умолчанию переводим на русский
+
+    message = (
+        f"Привет, {user.first_name}! Я бот-переводчик.\n\n"
+        "Отправь мне любое сообщение, и я переведу его.\n"
+        "По умолчанию я перевожу с автоопределения языка на русский.\n\n"
+        "Ты можешь изменить языки перевода:\n"
+        "👉 /set_from [код_языка] - установить язык оригинала (например, /set_from en)\n"
+        "👉 /set_to [код_языка] - установить язык для перевода (например, /set_to fr)\n"
+        "👉 /languages - показать список поддерживаемых языков\n"
+        "👉 /my_langs - показать текущие настройки языков"
+    )
+    update.message.reply_html(message)
+
+def help_command(update: Update, context: CallbackContext) -> None:
+    """Отправляет сообщение с инструкциями при команде /help."""
+    message = (
+        "Я бот-переводчик. Отправь мне текст, и я его переведу.\n\n"
+        "Основные команды:\n"
+        "/start - начать работу с ботом\n"
+        "/help - показать это справочное сообщение\n"
+        "/languages - показать список поддерживаемых языков и их коды\n"
+        "/my_langs - показать, на какие языки настроен перевод для тебя\n"
+        "/set_from [код_языка] - установить язык оригинала (например, /set_from en)\n"
+        "/set_to [код_языка] - установить язык для перевода (например, /set_to fr)\n\n"
+        "Пример:\n"
+        "Если ты хочешь перевести с английского на французский:\n"
+        "/set_from en\n"
+        "/set_to fr\n"
+        "Затем отправь сообщение на английском."
+    )
+    update.message.reply_text(message)
+
+def list_languages(update: Update, context: CallbackContext) -> None:
+    """Отображает список поддерживаемых языков."""
+    lang_list = "Поддерживаемые языки:\n"
+    for name, code in SUPPORTED_LANGUAGES.items():
+        lang_list += f"- <strong>{name}</strong> ({code})\n"
+    lang_list += "\nИспользуй коды для установки языков."
+    update.message.reply_html(lang_list)
+
+def set_from_lang(update: Update, context: CallbackContext) -> None:
+    """Устанавливает язык оригинала для перевода."""
+    user_id = update.effective_user.id
+    if not context.args:
+        update.message.reply_text("Пожалуйста, укажи код языка. Например: `/set_from en`")
+        return
+
+    lang_code = context.args[0].lower()
+
+    valid_codes = list(SUPPORTED_LANGUAGES.values()) + ['auto'] # Добавляем 'auto' как валидный код
+
+    if lang_code in valid_codes:
+        if user_id not in user_languages:
+            user_languages[user_id] = {'from_lang': 'auto', 'to_lang': 'ru'}
+        user_languages[user_id]['from_lang'] = lang_code
+        update.message.reply_text(f"Язык оригинала установлен на: <strong>{lang_code}</strong>.", parse_mode='HTML')
+    else:
+        update.message.reply_text(f"Неизвестный код языка: <strong>{lang_code}</strong>. Используй /languages, чтобы увидеть список доступных кодов.", parse_mode='HTML')
+
+def set_to_lang(update: Update, context: CallbackContext) -> None:
+    """Устанавливает язык для перевода."""
+    user_id = update.effective_user.id
+    if not context.args:
+        update.message.reply_text("Пожалуйста, укажи код языка. Например: `/set_to fr`")
+        return
+
+    lang_code = context.args[0].lower()
+
+    if lang_code in SUPPORTED_LANGUAGES.values():
+        if user_id not in user_languages:
+            user_languages[user_id] = {'from_lang': 'auto', 'to_lang': 'ru'}
+        user_languages[user_id]['to_lang'] = lang_code
+        update.message.reply_text(f"Язык перевода установлен на: <strong>{lang_code}</strong>.", parse_mode='HTML')
+    else:
+        update.message.reply_text(f"Неизвестный код языка: <strong>{lang_code}</strong>. Используй /languages, чтобы увидеть список доступных кодов.", parse_mode='HTML')
+
+def show_my_langs(update: Update, context: CallbackContext) -> None:
+    """Показывает текущие настройки языков пользователя."""
+    user_id = update.effective_user.id
+    if user_id in user_languages:
+        from_lang = user_languages[user_id]['from_lang']
+        to_lang = user_languages[user_id]['to_lang']
+        message = f"Твои текущие настройки:\n" \
+                  f"  - Оригинал: <strong>{from_lang}</strong> (auto = автоопределение)\n" \
+                  f"  - Перевод: <strong>{to_lang}</strong>"
+        update.message.reply_html(message)
+    else:
+        update.message.reply_text("Ты еще не настроил языки. Используй /set_from и /set_to.")
+
+def translate_message(update: Update, context: CallbackContext) -> None:
+    """Переводит полученное сообщение."""
+    user_id = update.effective_user.id
+    text_to_translate = update.message.text
+
+    # Получаем настройки пользователя, если их нет, используем дефолтные
+    user_settings = user_languages.get(user_id, {'from_lang': 'auto', 'to_lang': 'ru'})
+    from_lang = user_settings['from_lang']
+    to_lang = user_settings['to_lang']
+
+    if not text_to_translate:
+        return # Игнорируем пустые сообщения
+
+    try:
+        translator = Translator(from_lang=from_lang, to_lang=to_lang)
+        translated_text = translator.translate(text_to_translate)
+
+        if translated_text:
+            update.message.reply_text(translated_text)
+        else:
+            update.message.reply_text("Не удалось перевести сообщение. Попробуй еще раз.")
+
+    except Exception as e:
+        logger.error(f"Ошибка при переводе: {e}")
+        update.message.reply_text("Произошла ошибка при переводе. Пожалуйста, попробуй позже.")
+
+def error_handler(update: object, context: CallbackContext) -> None:
+    """Логирует ошибки, вызванные Updates."""
+    logger.warning(f'Update "{update}" caused error "{context.error}"')
+
+def main() -> None:
+    """Запуск бота."""
+    # Проверяем, установлен ли токен
+    if TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN":
+        print("😱 ОШИБКА: Пожалуйста, замени 'YOUR_TELEGRAM_BOT_TOKEN' на твой реальный токен бота!")
+        return
+
+    # Создаем Updater и передаем ему токен твоего бота
+    updater = Updater(TELEGRAM_BOT_TOKEN)
+
+    # Получаем диспетчер для регистрации обработчиков
+    dispatcher = updater.dispatcher
+
+    # Регистрация обработчиков команд
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("help", help_command))
+    dispatcher.add_handler(CommandHandler("languages", list_languages))
+    dispatcher.add_handler(CommandHandler("set_from", set_from_lang))
+    dispatcher.add_handler(CommandHandler("set_to", set_to_lang))
+    dispatcher.add_handler(CommandHandler("my_langs", show_my_langs))
+
+    # Регистрация обработчика для текстовых сообщений (для перевода)
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, translate_message))
+
+    # Регистрация обработчика ошибок
+    dispatcher.add_error_handler(error_handler)
+
+    # Запускаем бота (начинаем опрос Telegram на наличие новых сообщений)
+    updater.start_polling()
+
+    # Бот будет работать до тех пор, пока ты не нажмешь Ctrl+C
+    updater.idle()
+
+if __name__ == '__main__':
+    main()
